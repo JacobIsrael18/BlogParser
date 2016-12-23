@@ -14,15 +14,36 @@
 #include <netinet/in.h>
 #include<errno.h>
 
+const static int INVALID_SOCKET = 0;
 const static uint32_t BUFFER_SIZE = 4096;
 
 /*! ===========================
-  @function     Constructor
-  @discussion
+ @function     Constructor
+ @discussion
  Set the hostName for this instance
  ============================= */
 SimpleHTTP::SimpleHTTP(string newHostName) : hostName(newHostName){
     lastResponse = "";
+    httpInterface = NULL;
+    mySocketNumber = INVALID_SOCKET;
+}
+
+/*! ===========================
+ @function   setInterface
+ @discussion
+ @return
+ ============================= */
+void SimpleHTTP::setInterface(SimpleHTTPInterface* newInterface){
+    httpInterface = newInterface;
+}
+
+/*! ===========================
+ @function    getInterface
+ @discussion
+ @return
+ ============================= */
+SimpleHTTPInterface* SimpleHTTP::getInterface(){
+    return httpInterface;
 }
 
 /*! ===========================
@@ -86,9 +107,8 @@ struct sockaddr_storage getRemoteIPAddressForAddressOnPort(string remoteAddress,
     struct addrinfo* addressInformationPtr = addressInformationLinkedList;
     
     for( ; addressInformationPtr != NULL ; addressInformationPtr = addressInformationPtr->ai_next) {
- 
+        
         // printf("addressInformationPtr\nProtocol: %d\nSockType: %d\nData: %s\n", addressInformationPtr->ai_protocol, addressInformationPtr->ai_socktype, addressInformationPtr->ai_addr->sa_data);
- 
         
         // *** Looking ONLY for TCP at this time. ***
         if (addressInformationPtr->ai_socktype == SOCK_DGRAM || addressInformationPtr->ai_protocol ==  IPPROTO_UDP) {
@@ -160,99 +180,92 @@ struct sockaddr_storage getRemoteIPAddressForAddressOnPort(string remoteAddress,
 
 /*! ===========================
  @function  connectToHost
- @discussion 
+ @discussion
  Get the server's IP address and connect to it (TCP)
  @return the socket we are connected on
  ============================= */
-int SimpleHTTP::connectToHost(){
-    int result;
+void SimpleHTTP::connectToHost(){
     
     sockaddr_storage ipAddress = getRemoteIPAddressForAddressOnPort(hostName, PORT_80);
-    //    struct sockaddr_in* remoteIPv4Address;
-    //    struct sockaddr_in6* remoteIPv6Address;
     socklen_t sizeOfServerAddress;
     
     if(ipAddress.ss_family == AF_INET){ // IPv4
-        //        remoteIPv4Address = (struct sockaddr_in*)&ipAddress ;
         sizeOfServerAddress = sizeof(struct sockaddr_in);
-        
-#ifdef DEBUG
-        remoteIPv4Address = (struct sockaddr_in*)&ipAddress ;
-        //        struct sockaddr_in {
-        //            short            sin_family;   // e.g. AF_INET
-        //            unsigned short   sin_port;     // e.g. htons(3490)
-        //            struct in_addr   sin_addr;     // see struct in_addr, below
-        //            char             sin_zero[8];  // zero this if you want to
-        //        };
-        //
-        //        struct in_addr {
-        //            unsigned long s_addr;  // load with inet_aton()
-        //        };
-        printf("Connect address: %s \n", remoteIPv4Address.sin_addr.s_addr);
-#endif
     }
     else{ // AF_INET6
-        //        remoteIPv6Address = (struct sockaddr_in6*)&ipAddress;
         sizeOfServerAddress = sizeof(struct sockaddr_in6);
     }
     
-    int socketNumber = socket(ipAddress.ss_family, SOCK_STREAM,0);
-    if(socketNumber <= 0){
-        printf("FAILURE 1209785243  socket() falied for %d. Error: %d", ipAddress.ss_family, errno);
+    mySocketNumber = socket(ipAddress.ss_family, SOCK_STREAM, IPPROTO_TCP);
+    if(mySocketNumber <= 0){
+        if(httpInterface != NULL){
+            httpInterface->simpleHTTPConnectionFailed(NO_SOCKET_AVAILABLE);
+        }
+        return;
     }
     else{
-        result = connect(socketNumber, (const struct sockaddr*) &ipAddress, sizeOfServerAddress);
-
+        int result = connect(mySocketNumber, (const struct sockaddr*) &ipAddress, sizeOfServerAddress);
         if(result != 0){
-            close(socketNumber);
-            printf("FAILURE 457148253 connect() falied socket %d Error: %d  %d\n",socketNumber, errno, result);
-            return - 1;
+            closeSocket();
+            if(httpInterface != NULL){
+                httpInterface->simpleHTTPConnectionFailed(CONNECTION_REFUSED);
+            }
+            return;
         }
     }
-    return socketNumber;
+    if(httpInterface != NULL){
+        httpInterface->simpleHTTPConnected();
+    }
 }
 
 /*! ===========================
- @function    sendFileRequestToHostOnSocket(string fileName, int socketNumber)
+ @function    sendFileRequestToHost(string fileName)
  @discussion
  @param fileName - the resource we are looking for
  @param socketNumber - the socket to use
  @return number of bytes that were sent or -1 from send()
  ============================= */
-int SimpleHTTP::sendFileRequestToHostOnSocket(string fileName, int socketNumber)
+int SimpleHTTP::sendFileRequestToHost(string fileName)
 {
+    if(mySocketNumber <= 0){
+        printf("FAILURE 7876234743  send() using bad socket %d\n",  mySocketNumber);
+    }
+    
     string newLine = "\r\n";
     
     string httpMessage  = "GET " + fileName + " HTTP/1.1" + newLine + "Host: " + hostName + newLine + "Connection: keep-alive" + newLine + "Cache-Control: max-age=0" + newLine + "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" + newLine + "Content-Security-Policy: default-src 'self'" + newLine + "Accept-Encoding: gzip, deflate, lzma, sdch" + newLine + "Accept-Language: en-US,en;q=0.8" + newLine + newLine;
     
-    // printf("sendFileRequestToHostOnSocket  \n%s\nSocket:\n%d\n", httpMessage.c_str() , socketNumber);
+    // printf("sendFileRequestToHost  \n%s\nSocket:\n%d\n", httpMessage.c_str() , mySocketNumber);
     
     int bytesToSend = httpMessage.length();
     
     ///                                       socket                       buffer                   size       flags
-    int bytesSent = send(socketNumber, (char*)httpMessage.c_str(), bytesToSend , 0);
+    int bytesSent = send(mySocketNumber, (char*)httpMessage.c_str(), bytesToSend , 0);
     if(bytesSent != bytesToSend){
         printf("FAILURE 86285394  send() %d != %d\n", bytesSent, bytesToSend);
     }
-    
     return bytesSent;
 }
 
 /*! ===========================
- @function     waitForResponseOnSocket(int socketNumber)
+ @function     waitForResponse()
  @discussion
- This is a seperate function so that we can eventually call it 
+ This is a seperate function so that we can eventually call it
  on a background thread and add a callback.
  @param the socket to use
  ============================= */
-//                                                                                          (void)(*callBack)()
-void SimpleHTTP::waitForResponseOnSocket(int socketNumber){///string remoteAddress, string message){
+void SimpleHTTP::waitForResponse(){
+    
+    if(mySocketNumber <= 0){
+        printf("FAILURE 999623423. waitForResponse()  Invalid Socket %d", mySocketNumber);
+        return;
+    }
     
     // @TODO loop data into buffer and move it to  lastResponse
     char inputBuffer[BUFFER_SIZE];
     
     //  . . . .  . . . .  . . . .  . . . . Blocking call . . . .  . . . .  . . . .  . . . .  . . . .
-    int totalBytes = recv(socketNumber, inputBuffer, sizeof(inputBuffer) - 1, 0);
+    int totalBytes = recv(mySocketNumber, inputBuffer, sizeof(inputBuffer) - 1, 0);
     
     if(totalBytes <= 0) {
         printf("FAILURE 012973654 Could not receive any return message.  %d", totalBytes);
@@ -273,14 +286,18 @@ void SimpleHTTP::waitForResponseOnSocket(int socketNumber){///string remoteAddre
     
     // Clear the buffer  (Security)
     memset(inputBuffer, 0, sizeof(inputBuffer) );
+    
+    if(httpInterface != NULL){
+        httpInterface->simpleHTTPRecievedResponse();
+    }
 }
 
 /*! ===========================
  @function     getLastResponse
  @discussion
- Normally, you would call this right after a callback notified you 
+ Normally, you would call this right after a callback notified you
  that there was a sever response.
-Optionally, we could hold an array or responses, 
+ Optionally, we could hold an array or responses,
  or a dictionary, keyed by aa request tag.
  @return The last response fom the server.
  ============================= */
@@ -297,27 +314,30 @@ string SimpleHTTP::getLastResponse(){
  ============================= */
 string trimWhiteSpace(string inputString){
     
-    size_t index = 0, index2 = inputString.length();
+    size_t index = 0, index2 = inputString.length() - 1;
     while (index < inputString.length() && inputString[index] <= ' ') {
         index++ ;
     }
     
-    while (index2 > 0 && inputString[index2 - 1] <= ' ') {
+    while (index2 > 0 && inputString[index2] <= ' ') {
         index2-- ;
     }
-    return inputString.substr(index, index2 - index);
+    if(index < inputString.length() && index < index2){
+        return inputString.substr(index, index2 - index);
+    }
+    return "";
 }
 
 /*! ===========================
  @function    closeSocket
  @discussion
- We could just call close()
- But, this class may eventually hold its socket number internally
+ Idempotent
  @param The socket we no longer need.
  ============================= */
-void SimpleHTTP::closeSocket(int socketNumber){
-    close(socketNumber);
-    // int temp = mySocketNumber;
-    // mySocketNumber = INVALID_SOCKET;
-    //  close(temp);
+void SimpleHTTP::closeSocket(){
+    if(mySocketNumber > 0){
+        int temp = mySocketNumber;
+        mySocketNumber = INVALID_SOCKET;
+        close(temp);
+    }
 }

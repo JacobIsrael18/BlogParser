@@ -8,30 +8,34 @@
 #define SimpleHTTP_h
 
 #define PORT_80 80
-#define PORT_6969 6969
 
 #include <stdio.h>
 #include <iostream>
 #include <stdlib.h>
 #include <string>
+#include "SimpleHTTPInterface.h"
 using namespace std;
 
 class SimpleHTTP{
-
-private:
+    
+    private:
+    int mySocketNumber;
     bool messageResponseReceived;
     string hostName;
     string lastResponse;
+    SimpleHTTPInterface* httpInterface;
+    
 public:
-    SimpleHTTP(string newHostName) ;
-    string urlEncode(string inputString);
-    string urlDecode(string inputString);
-    int connectToHost();
-    int sendFileRequestToHostOnSocket(string fileName, int socketNumber);
-    void waitForResponseOnSocket(int socketNumber);
+    SimpleHTTP(string newHostName);
+    void connectToHost();
+    
+    // @TODO Handle 404 and redirects
+    int sendFileRequestToHost(string fileName);
+    void waitForResponse();
     string getLastResponse();
-    void processHTTPResponse(string response);
-    void closeSocket(int socketNumber);
-
+    void closeSocket();
+    
+    void setInterface(SimpleHTTPInterface* newInterface);
+    SimpleHTTPInterface* getInterface();
 };
 #endif // SimpleHTTP_h
