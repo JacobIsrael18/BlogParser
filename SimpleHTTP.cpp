@@ -55,19 +55,7 @@ struct sockaddr_storage getRemoteIPAddressForAddressOnPort(string remoteAddress,
     
     struct addrinfo addressInformationHint = {0};
     memset(&addressInformationHint, 0, sizeof(addressInformationHint));
-    /*
-     int             ai_flags;
-     int             ai_family;
-     int             ai_socktype;
-     int             ai_protocol;
-     size_t          ai_addrlen;
-     char            *ai_canonname;
-     struct sockaddr  *ai_addr;
-     struct addrinfo  *ai_next;
-     */
-    
-    // addressInformationHint.ai_flags = AI_PASSIVE;//AI_DEFAULT; //    AI_NUMERICHOST;//// AI_PASSIVE;
-    addressInformationHint.ai_family = PF_UNSPEC;   // IPv4 or IPv6       AF_UNSPEC
+    addressInformationHint.ai_family = AF_UNSPEC;
     addressInformationHint.ai_socktype = SOCK_STREAM;
     addressInformationHint.ai_protocol = IPPROTO_TCP;
     //    memcpy(addressInformationHint.ai_addr->sa_data,  &networkPortNumber,  sizeof(uint16_t ));
@@ -82,12 +70,12 @@ struct sockaddr_storage getRemoteIPAddressForAddressOnPort(string remoteAddress,
     
     
     int returnCode = getaddrinfo(addressString, remotePortString, &addressInformationHint, &addressInformationLinkedList);
-    //    int returnCode = getaddrinfo(
-    //                addressString,    //  "www.companyWebsite.com" or IP
-    //                remotePortString,    //   port number or "http" or "ftp" or "telnet" or "smtp"         remotePortString,
-    //                &addressInformationHint, // struct addrinfo  Hints
-    //                &addressInformationLinkedList // <=== return value
-    //    );
+    /* int getaddrinfo(
+     addressString,    //  "www.companyWebsite.com" or IP
+     remotePortString,    //   port number or "http" or "ftp" or "telnet" or "smtp"         remotePortString,
+     &addressInformationHint, // struct addrinfo  Hints
+     &addressInformationLinkedList // <=== return value
+     ); */
     
     if (addressInformationLinkedList == NULL) {
         const char* errorString = gai_strerror(returnCode);
@@ -98,12 +86,14 @@ struct sockaddr_storage getRemoteIPAddressForAddressOnPort(string remoteAddress,
     struct addrinfo* addressInformationPtr = addressInformationLinkedList;
     
     for( ; addressInformationPtr != NULL ; addressInformationPtr = addressInformationPtr->ai_next) {
+ 
+        // printf("addressInformationPtr\nProtocol: %d\nSockType: %d\nData: %s\n", addressInformationPtr->ai_protocol, addressInformationPtr->ai_socktype, addressInformationPtr->ai_addr->sa_data);
+ 
         
         // *** Looking ONLY for TCP at this time. ***
         if (addressInformationPtr->ai_socktype == SOCK_DGRAM || addressInformationPtr->ai_protocol ==  IPPROTO_UDP) {
             continue;
         }
-        
         
         if(addressInformationPtr->ai_addr->sa_family == AF_INET || addressInformationPtr->ai_addr->sa_family == AF_INET6){
             // _____IPv4____________________
@@ -124,10 +114,6 @@ struct sockaddr_storage getRemoteIPAddressForAddressOnPort(string remoteAddress,
                     ipv4Address.sin_addr.s_addr +=  addressInformationPtr->ai_addr->sa_data[i+2] << (i * 8);
                 }
                 
-                if( ipv4Address.sin_addr.s_addr == htonl(INADDR_LOOPBACK)){
-                    continue;
-                }
-                
                 if( ipv4Address.sin_addr.s_addr ==  INADDR_LOOPBACK){
                     continue;
                 }
@@ -136,8 +122,6 @@ struct sockaddr_storage getRemoteIPAddressForAddressOnPort(string remoteAddress,
                 
                 // We are done with the linked list
                 freeaddrinfo(addressInformationLinkedList);
-                
-                //      printf("\n\n%d   %d  \n\n", ipv4Address.sin_port ,  ipv4Address.sin_addr.s_addr );
                 
                 return *(struct sockaddr_storage*)&ipv4Address;
             }
@@ -182,6 +166,7 @@ struct sockaddr_storage getRemoteIPAddressForAddressOnPort(string remoteAddress,
  ============================= */
 int SimpleHTTP::connectToHost(){
     int result;
+    
     sockaddr_storage ipAddress = getRemoteIPAddressForAddressOnPort(hostName, PORT_80);
     //    struct sockaddr_in* remoteIPv4Address;
     //    struct sockaddr_in6* remoteIPv6Address;
@@ -190,6 +175,21 @@ int SimpleHTTP::connectToHost(){
     if(ipAddress.ss_family == AF_INET){ // IPv4
         //        remoteIPv4Address = (struct sockaddr_in*)&ipAddress ;
         sizeOfServerAddress = sizeof(struct sockaddr_in);
+        
+#ifdef DEBUG
+        remoteIPv4Address = (struct sockaddr_in*)&ipAddress ;
+        //        struct sockaddr_in {
+        //            short            sin_family;   // e.g. AF_INET
+        //            unsigned short   sin_port;     // e.g. htons(3490)
+        //            struct in_addr   sin_addr;     // see struct in_addr, below
+        //            char             sin_zero[8];  // zero this if you want to
+        //        };
+        //
+        //        struct in_addr {
+        //            unsigned long s_addr;  // load with inet_aton()
+        //        };
+        printf("Connect address: %s \n", remoteIPv4Address.sin_addr.s_addr);
+#endif
     }
     else{ // AF_INET6
         //        remoteIPv6Address = (struct sockaddr_in6*)&ipAddress;
@@ -202,10 +202,10 @@ int SimpleHTTP::connectToHost(){
     }
     else{
         result = connect(socketNumber, (const struct sockaddr*) &ipAddress, sizeOfServerAddress);
-        
+
         if(result != 0){
             close(socketNumber);
-            printf("FAILURE 457148253 connect() falied. Error: %d  %d\n", errno, result);
+            printf("FAILURE 457148253 connect() falied socket %d Error: %d  %d\n",socketNumber, errno, result);
             return - 1;
         }
     }
@@ -223,7 +223,7 @@ int SimpleHTTP::sendFileRequestToHostOnSocket(string fileName, int socketNumber)
 {
     string newLine = "\r\n";
     
-    string httpMessage  = "GET " + fileName + " HTTP/1.1" + newLine + "Host: " + hostName + newLine + "Connection: keep-alive" + newLine + "Cache-Control: max-age=0" + newLine + "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" + newLine + "Upgrade-Insecure-Requests: 1" + newLine + "Accept-Encoding: gzip, deflate, lzma, sdch" + newLine + "Accept-Language: en-US,en;q=0.8" + newLine + newLine;
+    string httpMessage  = "GET " + fileName + " HTTP/1.1" + newLine + "Host: " + hostName + newLine + "Connection: keep-alive" + newLine + "Cache-Control: max-age=0" + newLine + "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" + newLine + "Content-Security-Policy: default-src 'self'" + newLine + "Accept-Encoding: gzip, deflate, lzma, sdch" + newLine + "Accept-Language: en-US,en;q=0.8" + newLine + newLine;
     
     // printf("sendFileRequestToHostOnSocket  \n%s\nSocket:\n%d\n", httpMessage.c_str() , socketNumber);
     

@@ -1,4 +1,4 @@
-CHOSEN_COMPILER=Clang++
+CHOSEN_COMPILER=g++
 COMPILER_OPTIONS= -Wall
 SOURCE_FILES=BlogParser.cpp BlogPost.cpp SimpleHTTP.cpp
 OBJECTS=$(SOURCE_FILES:.cpp=.o)

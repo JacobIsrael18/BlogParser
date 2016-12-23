@@ -88,9 +88,11 @@ void processHTTPResponse(string response){
  ============================= */
 int main(int argc, char *argv[])
 {
-//#define DEBUG
+    //#define DEBUG
     
     string  hostName = "demo7701733.mockable.io";
+    // IP Address	216.58.193.83          - 558,698 other sites hosted on this server
+    //   IP Location	United States - California - Mountain View - Google Inc.
     
     SimpleHTTP simpleHTTP = SimpleHTTP(hostName);
 #ifdef DEBUG
