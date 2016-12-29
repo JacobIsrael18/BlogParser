@@ -1,5 +1,10 @@
 Hello,
 
+If you want to run this project as a Dynamic Library, please go to:
+
+    https://github.com/JacobIsrael18/BlogParserLibrary
+
+
 To compile and run this code:
 
 1. Please place all files in a single folder.
